@@ -43,7 +43,8 @@ type NetworkCommand struct {
 	IPProtocol  string `json:"ip-protocol,omitempty"`
 	Hostname    string `json:"hostname,omitempty"`
 
-	Direction string `json:"direction,omitempty"`
+	Direction   string `json:"direction,omitempty"`
+	FullDisable bool   `json:"full-disable,omitempty"`
 
 	// used for DNS attack
 	DNSServer     string `json:"dns-server,omitempty"`
@@ -172,6 +173,16 @@ func (n *NetworkCommand) validNetworkCommon() error {
 
 	if !utils.CheckIPs(n.IPAddress) {
 		return errors.Errorf("ip addressed %s not valid", n.IPAddress)
+	}
+
+	if len(n.Hostname) == 0 && len(n.IPAddress) == 0 && !n.FullDisable {
+		return errors.New("hostname or ip address is required")
+	}
+
+	if n.FullDisable {
+		if len(n.Hostname) > 0 || len(n.IPAddress) > 0 {
+			return errors.New("the host and address are set, but the flag full-disable is enabled")
+		}
 	}
 
 	return checkProtocolAndPorts(n.IPProtocol, n.SourcePort, n.EgressPort)

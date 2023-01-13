@@ -114,6 +114,7 @@ func NewNetworkLossCommand(dep fx.Option, options *core.NetworkCommand) *cobra.C
 	cmd.Flags().StringVarP(&options.Hostname, "hostname", "H", "", "only impact traffic to these hostnames")
 	cmd.Flags().StringVarP(&options.IPProtocol, "protocol", "p", "",
 		"only impact traffic using this IP protocol, supported: tcp, udp, icmp, all")
+	cmd.Flags().BoolVar(&options.FullDisable, "full-disable", false, "full net on device disable flag")
 
 	return cmd
 }
