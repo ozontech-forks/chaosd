@@ -143,12 +143,20 @@ func (n *NetworkCommand) validNetworkDelay() error {
 		return errors.Errorf("protocol should be 'tcp' when set accept-tcp-flags")
 	}
 
+	if err := checkNetworkLimitParams(n.Hostname, n.IPAddress, n.FullDisable); err != nil {
+		return err
+	}
+
 	return checkProtocolAndPorts(n.IPProtocol, n.SourcePort, n.EgressPort)
 }
 
 func (n *NetworkCommand) validNetworkBandwidth() error {
 	if len(n.Rate) == 0 || n.Limit == 0 || n.Buffer == 0 {
 		return errors.Errorf("rate, limit and buffer both are required when action is bandwidth")
+	}
+
+	if err := checkNetworkLimitParams(n.Hostname, n.IPAddress, n.FullDisable); err != nil {
+		return err
 	}
 
 	return nil
@@ -175,14 +183,8 @@ func (n *NetworkCommand) validNetworkCommon() error {
 		return errors.Errorf("ip addressed %s not valid", n.IPAddress)
 	}
 
-	if len(n.Hostname) == 0 && len(n.IPAddress) == 0 && !n.FullDisable {
-		return errors.New("hostname or ip address is required")
-	}
-
-	if n.FullDisable {
-		if len(n.Hostname) > 0 || len(n.IPAddress) > 0 {
-			return errors.New("the host and address are set, but the flag full-disable is enabled")
-		}
+	if err := checkNetworkLimitParams(n.Hostname, n.IPAddress, n.FullDisable); err != nil {
+		return err
 	}
 
 	return checkProtocolAndPorts(n.IPProtocol, n.SourcePort, n.EgressPort)
@@ -339,6 +341,20 @@ func checkProtocolAndPorts(p string, sports string, dports string) error {
 		}
 
 		return errors.New("ip protocol is required")
+	}
+
+	return nil
+}
+
+func checkNetworkLimitParams(hostname string, ipaddress string, fullDisable bool) error {
+	if len(hostname) == 0 && len(ipaddress) == 0 && !fullDisable {
+		return errors.New("hostname or ip address is required")
+	}
+
+	if fullDisable {
+		if len(hostname) > 0 || len(ipaddress) > 0 {
+			return errors.New("the host and address are set, but the flag full-disable is enabled")
+		}
 	}
 
 	return nil
