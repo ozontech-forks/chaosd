@@ -43,6 +43,7 @@ const (
 	FileAttack        = "file"
 	HTTPAttack        = "http"
 	VMAttack          = "vm"
+	PatroniAttack     = "patroni"
 	UserDefinedAttack = "userDefined"
 )
 
