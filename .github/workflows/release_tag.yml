@@ -1,18 +1,19 @@
-name: Release tag binary
+name: Release tag binary and deb
 on:
   push:
-    tags:
+    branches:
       - v*
+
 jobs:
   run:
     name: Upload
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
-    runs-on: ${{ fromJson('{"amd64":"ubuntu-latest", "arm64":["self-hosted", "Linux", "ARM64"]}')[matrix.arch] }}
+        arch: [amd64]
+    runs-on: ${{ fromJson('{"amd64":"ubuntu-latest"}')[matrix.arch] }}
     # glibc version 2.17
-    container: ${{ fromJson('{"amd64":"docker.io/centos:7.2.1511", "arm64":"docker.io/centos:centos7"}')[matrix.arch] }}
+    container: ${{ fromJson('{"amd64":"docker.io/ubuntu:bionic"}')[matrix.arch] }}
     steps:
       - name: Set up Go 1.18
         uses: actions/setup-go@v1
@@ -20,34 +21,39 @@ jobs:
           go-version: 1.18.2
         id: go
 
-      - name: Prepare build environment
-        run: |
-          # actions/checkout require git v2.X
-          yum install -y gcc make binutils centos-release-scl
-          yum install -y rh-git227-git
-          echo /opt/rh/rh-git227/root/usr/bin >> $GITHUB_PATH
-          echo "LD_LIBRARY_PATH=/opt/rh/httpd24/root/usr/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-
       - uses: actions/checkout@master
         with:
           fetch-depth: 0
 
-      - name: Setup python3
-        run: |
-          yum install -y python3
-          alias python=python3
-
-      - name: Configure awscli
-        run: |
-          pip3 install awscli
-          printf "%s\n" ${{ secrets.AWS_ACCESS_KEY }} ${{ secrets.AWS_SECRET_KEY }} ${{ secrets.AWS_REGION }} "json" | aws configure
-
       - name: Build binary and related tools
-        run: make build
-
-      - name: Upload files
         run: |
-          GIT_TAG=${GITHUB_REF##*/}
-          mv bin chaosd-${GIT_TAG}-linux-${{ matrix.arch }}
-          tar czvf chaosd-${GIT_TAG}-linux-${{ matrix.arch }}.tar.gz chaosd-${GIT_TAG}-linux-${{ matrix.arch }}
-          aws s3 cp chaosd-${GIT_TAG}-linux-${{ matrix.arch }}.tar.gz ${{ secrets.AWS_BUCKET_NAME }}/chaosd-${GIT_TAG}-linux-${{ matrix.arch }}.tar.gz
+          apt-get update && apt-get install ruby-dev build-essential curl -y
+          make build
+      
+      - name: Build deb package
+        run: |
+          apt-get update && apt-get install ruby-dev build-essential curl -y && gem install fpm
+          fpm -s dir -t deb --name chaosd-o3 -C . --version "${{ github.ref }}" --iteration 1 --description "custom chaosd from Ozon Tech" -p "chaosd-o3-${{ github.ref }}.deb"
+          ls -la 
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./chaosd-o3-${{ github.ref }}.deb
+          asset_name: chaosd-o3-${{ github.ref }}.deb
+          asset_content_type: application/zip
