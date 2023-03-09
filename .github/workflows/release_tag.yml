@@ -35,10 +35,15 @@ jobs:
       
       - name: Build deb package
         run: |
+          export BUILD_RESULTS_DIR=debs
+          export BUILD_DIR=buildroot
+          export PACKAGE_NAME=chaosd-o3
+          mkdir -p "${DIR}/${BUILD_RESULTS_DIR}" "${DIR}/${BUILD_DIR}/usr/bin"
           apt-get update && apt-get install ruby-dev build-essential curl grep -y && gem install fpm
           export RELEASE_VERSION=$(echo "${{ env.RELEASE_VERSION }}" | grep -Eo '[0-9.]+')
           echo $RELEASE_VERSION
-          fpm -s dir -t deb --name chaosd-o3 -C . --version $RELEASE_VERSION --iteration 1 --description "custom chaosd from Ozon Tech" -p "chaosd-o3.deb"
+          install ./bin/chaosd ${DIR}/${BUILD_DIR}/usr/bin/chaosd
+          fpm -s dir -t deb --name chaosd-o3 -C "${DIR}/${BUILD_DIR}" --version $RELEASE_VERSION --iteration 1 --description "custom chaosd from Ozon Tech" -p "${PACKAGE_NAME}.deb"
           ls -la 
 
       - name: Create Release
@@ -59,6 +64,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ env.RELEASE_VERSION }}
+          RELEASE: $(echo "${{ env.RELEASE_VERSION }}" | grep -Eo '[0-9.]+')
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
           asset_path: ./chaosd-o3.deb
