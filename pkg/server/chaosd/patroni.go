@@ -58,8 +58,8 @@ func (patroniAttack) Attack(options core.AttackConfig, _ Environment) error {
 		return errors.WithStack(err)
 	}
 
-	if len(patroniInfo.Replicas) == 0 {
-		err = errors.Errorf("failed to get available replicas. Please, check your cluster")
+	if len(patroniInfo.Replicas) == 0 && len(patroniInfo.SyncStandby) == 0 {
+		err = errors.Errorf("failed to get available candidates. Please, check your cluster.")
 		return errors.WithStack(err)
 	}
 
