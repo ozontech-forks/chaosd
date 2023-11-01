@@ -16,6 +16,7 @@ package experiment
 import (
 	"context"
 	"errors"
+	"strings"
 
 	perr "github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -93,11 +94,11 @@ func (e *experimentStore) ListByConditions(_ context.Context, conds *core.Search
 
 	if !conds.All {
 		if len(conds.Kind) > 0 {
-			db = db.Where("kind = ?", conds.Kind)
+			db = db.Where("kind IN (?)", strings.Split(conds.Kind, ","))
 		}
 
 		if len(conds.Status) > 0 {
-			db = db.Where("status = ?", conds.Status)
+			db = db.Where("status = (?)", conds.Status)
 		}
 	}
 
