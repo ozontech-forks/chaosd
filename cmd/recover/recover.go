@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 
@@ -24,12 +25,14 @@ import (
 	"github.com/pingcap/log"
 
 	"github.com/chaos-mesh/chaosd/cmd/server"
+	"github.com/chaos-mesh/chaosd/pkg/core"
 	"github.com/chaos-mesh/chaosd/pkg/server/chaosd"
 	"github.com/chaos-mesh/chaosd/pkg/utils"
 )
 
 type recoverCommand struct {
 	uid string
+	All bool
 }
 
 func NewRecoverCommand() *cobra.Command {
@@ -44,26 +47,67 @@ func NewRecoverCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               "recover UID",
 		Short:             "Recover a chaos experiment",
-		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: completeUid,
 		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) == 0 {
-				utils.ExitWithMsg(utils.ExitBadArgs, "UID is required")
+			if len(args) == 0 && !options.All {
+				utils.ExitWithMsg(utils.ExitBadArgs, "UID is required, option all is false")
 			}
-			options.uid = args[0]
+			if len(args) > 0 {
+				options.uid = args[0]
+			}
 			utils.FxNewAppWithoutLog(dep, fx.Invoke(recoverCommandF)).Run()
 		},
 	}
+
+	cmd.Flags().BoolVarP(&options.All, "all", "A", false, "recover all running chaos attacks")
 	return cmd
 }
 
 func recoverCommandF(chaos *chaosd.Server, options *recoverCommand) {
-	err := chaos.RecoverAttack(options.uid)
-	if err != nil {
-		utils.ExitWithError(utils.ExitError, err)
+	if options.uid != "" {
+		err := chaos.RecoverAttack(options.uid)
+		if err != nil {
+			utils.ExitWithError(utils.ExitError, err)
+		}
+		utils.NormalExit(fmt.Sprintf("Recover %s successfully", options.uid))
+	} else {
+		exps, err := chaos.Search(&core.SearchCommand{
+			Asc:    false,
+			All:    false,
+			Status: "success",
+			Kind:   "network,stress,process",
+			Limit:  0,
+			Offset: 0,
+			UID:    "",
+		})
+		if err != nil {
+			utils.ExitWithError(utils.ExitError, err)
+		}
+		if len(exps) > 0 {
+			logrus.Infof("Found %d attacks for recover\n", len(exps))
+		} else {
+			utils.NormalExit(fmt.Sprintf("Found 0 attacks for recover. Exit\n"))
+		}
+
+		errorCount := 0
+		for _, attack := range exps {
+			fmt.Println(attack)
+			err := chaos.RecoverAttack(attack.Uid)
+			if err != nil {
+				logrus.Infof("%d %s", utils.ExitError, err)
+				errorCount++
+			}
+			logrus.Infof("Recover %s with type %s successfully\n", attack.Uid, attack.Kind)
+		}
+
+		if errorCount != 0 {
+			utils.ExitWithError(utils.ExitError, fmt.Errorf("several attack recover is failed"))
+		}
+
+		utils.NormalExit("All attacks is recovered successfully")
+
 	}
 
-	utils.NormalExit(fmt.Sprintf("Recover %s successfully", options.uid))
 }
 
 func completeUid(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
